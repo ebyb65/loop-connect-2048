@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+<title>Loop Connect 2048</title>
+<style>
+  :root {
+    --bg-color: #0b1329;
+    --card-bg: #1e293b;
+    --panel-bg: #151f38;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+  }
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    touch-action: none;
+    overflow: hidden;
+  }
+  header {
+    width: 340px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+  }
+  .title-area h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, #38bdf8, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stats-container {
+    display: flex;
+    gap: 8px;
+  }
+  .stat-card {
+    background: var(--panel-bg);
+    padding: 6px 12px;
+    border-radius: 10px;
+    text-align: center;
+    min-width: 65px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .stat-card small {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .stat-card span {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  #game-container {
+    position: relative;
+    width: 340px;
+    height: 340px;
+    background: var(--card-bg);
+    border-radius: 20px;
+    padding: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 12px;
+    width: 100%;
+    height: 100%;
+  }
+  .dot {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 20px;
+    transition: transform 0.12s ease-out;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+  }
+  .dot.selected {
+    transform: scale(1.18);
+    filter: brightness(1.2);
+  }
+  .controls {
+    width: 340px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+  }
+  .btn {
+    background: var(--panel-bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-main);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn:active {
+    transform: scale(0.95);
+  }
+  .preview-indicator {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .preview-indicator span {
+    color: #38bdf8;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-area">
+    <h1>LOOP CONNECT</h1>
+    <small style="color: #64748b; font-size: 11px;">2048 EDITION</small>
+  </div>
+  <div class="stats-container">
+    <div class="stat-card">
+      <small>Score</small>
+      <span id="score">0</span>
+    </div>
+    <div class="stat-card">
+      <small>Best</small>
+      <span id="best-score">0</span>
+    </div>
+  </div>
+</header>
+
+<div id="game-container">
+  <canvas id="line-canvas" width="340" height="340"></canvas>
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="controls">
+  <div class="preview-indicator" id="preview-text">Connect dots to merge</div>
+  <button class="btn" id="restart-btn">Restart</button>
+</div>
+
+<script>
+  const GRID_SIZE = 4;
+  let grid = [];
+  let score = 0;
+  let bestScore = localStorage.getItem('loop_connect_best') || 0;
+  let selectedChain = [];
+  let isDragging = false;
+
+  // Web Audio Context for synthesizer sound effects
+  let audioCtx = null;
+  function playTone(freq, duration = 0.08) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  const colors = {
+    2: { bg: '#2563eb', text: '#fff' },
+    4: { bg: '#0891b2', text: '#fff' },
+    8: { bg: '#059669', text: '#fff' },
+    16: { bg: '#65a30d', text: '#fff' },
+    32: { bg: '#d97706', text: '#fff' },
+    64: { bg: '#dc2626', text: '#fff' },
+    128: { bg: '#db2777', text: '#fff' },
+    256: { bg: '#7c3aed', text: '#fff' },
+    512: { bg: '#4f46e5', text: '#fff' },
+    1024: { bg: '#c026d3', text: '#fff' },
+    2048: { bg: '#eab308', text: '#000' }
+  };
+
+  const gridEl = document.getElementById('grid');
+  const canvas = document.getElementById('line-canvas');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestScoreEl = document.getElementById('best-score');
+  const previewText = document.getElementById('preview-text');
+  const restartBtn = document.getElementById('restart-btn');
+
+  bestScoreEl.textContent = bestScore;
+
+  function initBoard() {
+    grid = [];
+    score = 0;
+    scoreEl.textContent = '0';
+    selectedChain = [];
+    previewText.innerHTML = 'Connect dots to merge';
+    const basePool = [2, 4, 8, 16];
+    for (let r = 0; r < GRID_SIZE; r++) {
+      grid[r] = [];
+      for (let c = 0; c < GRID_SIZE; c++) {
+        grid[r][c] = basePool[Math.floor(Math.random() * basePool.length)];
+      }
+    }
+    renderGrid();
+  }
+
+  function renderGrid() {
+    gridEl.innerHTML = '';
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const val = grid[r][c];
+        const dot = document.createElement('div');
+        dot.className = 'dot';
+        dot.dataset.row = r;
+        dot.dataset.col = c;
+        dot.textContent = val >= 1024 ? (val / 1024) + 'k' : val;
+        
+        const colStyle = colors[val] || { bg: '#334155', text: '#fff' };
+        dot.style.backgroundColor = colStyle.bg;
+        dot.style.color = colStyle.text;
+
+        if (selectedChain.some(p => p.r === r && p.c === c)) {
+          dot.classList.add('selected');
+        }
+
+        gridEl.appendChild(dot);
+      }
+    }
+  }
+
+  function getElementCenter(r, c) {
+    const el = document.querySelector(`.dot[data-row="${r}"][data-col="${c}"]`);
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const containerRect = document.getElementById('game-container').getBoundingClientRect();
+    return {
+      x: rect.left - containerRect.left + rect.width / 2,
+      y: rect.top - containerRect.top + rect.height / 2
+    };
+  }
+
+  function drawLines(currentTouch) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (selectedChain.length === 0) return;
+
+    ctx.beginPath();
+    const start = getElementCenter(selectedChain[0].r, selectedChain[0].c);
+    ctx.moveTo(start.x, start.y);
+
+    for (let i = 1; i < selectedChain.length; i++) {
+      const pt = getElementCenter(selectedChain[i].r, selectedChain[i].c);
+      ctx.lineTo(pt.x, pt.y);
+    }
+
+    if (currentTouch) {
+      ctx.lineTo(currentTouch.x, currentTouch.y);
+    }
+
+    const firstVal = grid[selectedChain[0].r][selectedChain[0].c];
+    ctx.strokeStyle = (colors[firstVal] && colors[firstVal].bg) || '#38bdf8';
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  function isAdjacent(p1, p2) {
+    const dr = Math.abs(p1.r - p2.r);
+    const dc = Math.abs(p1.c - p2.c);
+    return dr <= 1 && dc <= 1 && !(dr === 0 && dc === 0);
+  }
+
+  function calculateTargetValue() {
+    if (selectedChain.length < 2) return null;
+    const total = selectedChain.reduce((sum, p) => sum + grid[p.r][p.c], 0);
+    let nextVal = Math.pow(2, Math.ceil(Math.log2(total)));
+    const minVal = grid[selectedChain[0].r][selectedChain[0].c] * 2;
+    return Math.max(nextVal, minVal);
+  }
+
+  function updatePreview() {
+    if (selectedChain.length >= 2) {
+      const target = calculateTargetValue();
+      previewText.innerHTML = `Merge target: <span>${target}</span>`;
+    } else {
+      previewText.innerHTML = 'Connect dots to merge';
+    }
+  }
+
+  function handlePointerDown(e) {
+    const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.dot');
+    if (!target) return;
+    
+    isDragging = true;
+    const r = parseInt(target.dataset.row);
+    const c = parseInt(target.dataset.col);
+    selectedChain = [{ r, c }];
+    playTone(280);
+    renderGrid();
+    drawLines();
+    updatePreview();
+  }
+
+  function handlePointerMove(e) {
+    if (!isDragging) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.dot');
+    const containerRect = document.getElementById('game-container').getBoundingClientRect();
+    const touchPos = {
+      x: e.clientX - containerRect.left,
+      y: e.clientY - containerRect.top
+    };
+
+    if (target) {
+      const r = parseInt(target.dataset.row);
+      const c = parseInt(target.dataset.col);
+      const last = selectedChain[selectedChain.length - 1];
+
+      // Undo back
+      if (selectedChain.length > 1) {
+        const secondLast = selectedChain[selectedChain.length - 2];
+        if (secondLast.r === r && secondLast.c === c) {
+          selectedChain.pop();
+          playTone(240);
+          renderGrid();
+          drawLines(touchPos);
+          updatePreview();
+          return;
+        }
+      }
+
+      // Add node
+      const alreadyIn = selectedChain.some(p => p.r === r && p.c === c);
+      if (!alreadyIn && isAdjacent(last, { r, c })) {
+        const firstVal = grid[selectedChain[0].r][selectedChain[0].c];
+        const targetVal = grid[r][c];
+
+        if (targetVal === firstVal || (selectedChain.length > 1 && targetVal === firstVal * 2)) {
+          selectedChain.push({ r, c });
+          playTone(300 + selectedChain.length * 40);
+          renderGrid();
+          updatePreview();
+        }
+      }
+    }
+    drawLines(touchPos);
+  }
+
+  function handlePointerUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (selectedChain.length >= 2) {
+      executeMerge();
+    } else {
+      selectedChain = [];
+      renderGrid();
+      updatePreview();
+    }
+  }
+
+  function executeMerge() {
+    const nextVal = calculateTargetValue();
+    const last = selectedChain[selectedChain.length - 1];
+    
+    playTone(600, 0.2);
+
+    selectedChain.forEach(p => { grid[p.r][p.c] = 0; });
+    grid[last.r][last.c] = nextVal;
+    
+    score += nextVal;
+    scoreEl.textContent = score;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestScoreEl.textContent = bestScore;
+      localStorage.setItem('loop_connect_best', bestScore);
+    }
+
+    applyGravityAndFill();
+    selectedChain = [];
+    renderGrid();
+    updatePreview();
+  }
+
+  function applyGravityAndFill() {
+    const pool = [2, 4, 8, 16];
+    for (let c = 0; c < GRID_SIZE; c++) {
+      let writeRow = GRID_SIZE - 1;
+      for (let r = GRID_SIZE - 1; r >= 0; r--) {
+        if (grid[r][c] !== 0) {
+          grid[writeRow][c] = grid[r][c];
+          if (writeRow !== r) grid[r][c] = 0;
+          writeRow--;
+        }
+      }
+      while (writeRow >= 0) {
+        grid[writeRow][c] = pool[Math.floor(Math.random() * pool.length)];
+        writeRow--;
+      }
+    }
+  }
+
+  window.addEventListener('pointerdown', handlePointerDown);
+  window.addEventListener('pointermove', handlePointerMove);
+  window.addEventListener('pointerup', handlePointerUp);
+  restartBtn.addEventListener('click', initBoard);
+
+  initBoard();
+</script>
+</body>
+</html>
