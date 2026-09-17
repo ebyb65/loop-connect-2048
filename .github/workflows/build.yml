@@ -22,18 +22,28 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21'
+
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Prepare Web Assets
         run: |
           mkdir -p www
           cp index.html www/
 
-      - name: Initialize Project & Install Capacitor
+      - name: Install Dependencies & Init Capacitor
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Loop Connect 2048" "com.loopconnect.game" --web-dir www
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.loopconnect.game",
+            "appName": "Loop Connect 2048",
+            "webDir": "www",
+            "bundledWebRuntime": false
+          }
+          EOF
           npx cap add android
           npx cap sync android
 
@@ -41,7 +51,7 @@ jobs:
         run: |
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
